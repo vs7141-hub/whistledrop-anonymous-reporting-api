@@ -1,0 +1,80 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+  moduleFormat = "cjs"
+  runtime  = "nodejs"
+  engineType = "client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Category {
+  SECURITY
+  HARASSMENT
+  CORRUPTION
+  TECHNICAL
+  OTHER
+}
+
+enum ReportStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+enum Role {
+  MODERATOR
+  ADMIN
+}
+
+// A report contains NOTHING that identifies the reporter: no name, email,
+// phone, IP address, user agent or account link.
+model Report {
+  id           String       @id @default(uuid()) @db.Uuid
+  // HMAC-SHA256 of the case code. The plaintext code is never stored.
+  caseCodeHash String       @unique @map("case_code_hash") @db.Char(64)
+  category     Category
+  description  String       @db.VarChar(5000)
+  referenceUrl String?      @map("reference_url") @db.VarChar(2048)
+  status       ReportStatus @default(SUBMITTED)
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+  updates      StatusUpdate[]
+
+  @@index([status])
+  @@index([category])
+  @@index([createdAt])
+  @@map("reports")
+}
+
+model StatusUpdate {
+  id          String        @id @default(uuid()) @db.Uuid
+  reportId    String        @map("report_id") @db.Uuid
+  report      Report        @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  // Which moderator wrote it (internal accountability; never sent to reporters).
+  moderatorId String        @map("moderator_id") @db.Uuid
+  moderator   Moderator     @relation(fields: [moderatorId], references: [id], onDelete: Restrict)
+  // null for both = a plain note that did not change the status
+  fromStatus  ReportStatus? @map("from_status")
+  toStatus    ReportStatus? @map("to_status")
+  message     String        @db.VarChar(500)
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  @@index([reportId, createdAt])
+  @@map("status_updates")
+}
+
+model Moderator {
+  id           String         @id @default(uuid()) @db.Uuid
+  email        String         @unique @db.VarChar(254)
+  passwordHash String         @map("password_hash") @db.VarChar(100)
+  role         Role           @default(MODERATOR)
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updates      StatusUpdate[]
+
+  @@map("moderators")
+}
